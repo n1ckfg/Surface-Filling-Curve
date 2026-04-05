@@ -423,10 +423,12 @@ class SufaceFillingCurveOperator(bpy.types.Operator):
                 return
             bpy.ops.wm.ply_import(filepath=mesh_path)
             print(f"Imported curve with {len(context.active_object.data.vertices)} vertices")
-            bpy.context.window_manager.surface_curve_added = context.active_object
+            curve_obj = context.active_object
+            bpy.context.window_manager.surface_curve_added = curve_obj
+
             if bpy.context.window_manager.surface_curve_solid:
                 try:
-                    modifier = bpy.context.active_object.modifiers.new(name='Solid', type='NODES')
+                    modifier = curve_obj.modifiers.new(name='Solid', type='NODES')
                     try:
                         modifier.node_group = surfaceFillingCurveGeometryNode.getGroup()
                     except:
@@ -435,8 +437,28 @@ class SufaceFillingCurveOperator(bpy.types.Operator):
                     modifier['Socket_3'] = bpy.context.window_manager.surface_curve_anisotropy
                     bpy.ops.object.modifier_apply(modifier=modifier.name)
                 except:
-                    pass   
-                
+                    pass
+
+            # Convert to Grease Pencil if requested
+            if bpy.context.window_manager.surface_curve_to_gpencil:
+                try:
+                    bpy.ops.object.select_all(action='DESELECT')
+                    curve_obj.select_set(True)
+                    context.view_layer.objects.active = curve_obj
+                    # First convert mesh to curve
+                    bpy.ops.object.convert(target='CURVE')
+                    curve_obj = context.active_object
+                    # Then convert curve to Grease Pencil
+                    # Blender 4.5+ uses GREASEPENCIL, older versions use GPENCIL
+                    try:
+                        bpy.ops.object.convert(target='GREASEPENCIL')
+                    except:
+                        bpy.ops.object.convert(target='GPENCIL')
+                    bpy.context.window_manager.surface_curve_added = context.active_object
+                    print(f"Converted to Grease Pencil: {context.active_object.name}")
+                except Exception as e:
+                    print(f"Grease Pencil conversion failed: {e}")
+
             bpy.context.view_layer.objects.active = bpy.data.objects[self.obj.name]
             bpy.ops.object.select_all(action='DESELECT')
             bpy.data.objects[self.obj.name].select_set(True)
@@ -490,6 +512,7 @@ class SufaceFillingCurvePanel(bpy.types.Panel):
                 col.prop(context.window_manager, "surface_curve_fill", text="Fill Percentage")
                 col.prop(context.window_manager, "surface_curve_anisotropy", text="Aspect Ratio")
         col.prop(context.window_manager, "surface_curve_replace", text="Replace Last")
+        col.prop(context.window_manager, "surface_curve_to_gpencil", text="Convert to Grease Pencil")
         col.separator()
         if SufaceFillingCurveOperator.running:
             col.progress(text="        Generating...", factor=SufaceFillingCurveOperator.progress[0])
@@ -516,6 +539,12 @@ def register():
     bpy.types.WindowManager.surface_curve_fill = bpy.props.FloatProperty(default=30.0, min=1e-8)
     bpy.types.WindowManager.surface_curve_show = bpy.props.BoolProperty(default=False)
     bpy.types.WindowManager.surface_curve_anisotropy = bpy.props.FloatProperty(default=1.0, min=0)
+    # Output conversion settings
+    bpy.types.WindowManager.surface_curve_to_gpencil = bpy.props.BoolProperty(
+        name="Convert to Grease Pencil",
+        description="Automatically convert the output curve to a Grease Pencil object",
+        default=True
+    )
     # Point cloud conversion settings
     bpy.types.WindowManager.surface_curve_voxel_size = bpy.props.FloatProperty(
         name="Voxel Size",
@@ -543,6 +572,7 @@ def unregister():
     del bpy.types.WindowManager.surface_curve_fill
     del bpy.types.WindowManager.surface_curve_show
     del bpy.types.WindowManager.surface_curve_anisotropy
+    del bpy.types.WindowManager.surface_curve_to_gpencil
     del bpy.types.WindowManager.surface_curve_voxel_size
     del bpy.types.WindowManager.surface_curve_point_radius
 
